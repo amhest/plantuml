@@ -4,3 +4,4 @@
 build/
 dist/
 sphinxcontrib_plantuml.egg-info/
+.vscode

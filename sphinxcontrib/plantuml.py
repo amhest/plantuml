@@ -83,6 +83,9 @@ def latex_format(argument):
     format_values = list(_KNOWN_LATEX_FORMATS.keys())
     return directives.choice(argument, format_values)
 
+def docx_format(argument):
+    format_values = list(_KNOWN_DOCX_FORMATS.keys())
+    return directives.choice(argument, format_values)
 
 class UmlDirective(Directive):
     """Directive to insert PlantUML markup
@@ -107,6 +110,7 @@ class UmlDirective(Directive):
         'height': directives.length_or_unitless,
         'html_format': html_format,
         'latex_format': latex_format,
+        'docx_format': docx_format,
         'name': directives.unchanged,
         'scale': directives.percentage,
         'width': directives.length_or_percentage_or_unitless,
@@ -164,6 +168,8 @@ class UmlDirective(Directive):
             node['html_format'] = self.options['html_format']
         if 'latex_format' in self.options:
             node['latex_format'] = self.options['latex_format']
+        if 'docx_format' in self.options:
+            node['docx_format'] = self.options['docx_format']
 
         return [node]
 
@@ -194,6 +200,8 @@ def generate_name(self, node, fileformat):
             '/'.join((self.builder.imgpath, fname)),
             os.path.join(self.builder.outdir, '_images', fname),
         )
+    elif self.builder.env.srcdir:
+        return fname, os.path.join(self.builder.env.srcdir, fname)
     else:
         return fname, os.path.join(self.builder.outdir, fname)
 
@@ -226,7 +234,8 @@ def generate_plantuml_args(self, node, fileformat):
     args = _split_cmdargs(self.builder.config.plantuml)
     args.extend(['-pipe', '-charset', 'utf-8'])
     args.extend(['-filename', node['filename']])
-    args.extend(_ARGS_BY_FILEFORMAT[fileformat])
+    if _ARGS_BY_FILEFORMAT.get(fileformat):
+        args.extend(_ARGS_BY_FILEFORMAT[fileformat])
     return args
 
 
@@ -288,6 +297,11 @@ class PlantumlBuilder(object):
             fmt = builder.config.plantuml_latex_output_format
             if fmt != 'none':
                 fileformat, _postproc = _lookup_latex_format(fmt)
+                self.image_formats = [fileformat]
+        elif builder.format == 'docx':
+            fmt = builder.config.plantuml_docx_output_format
+            if fmt != 'none':
+                fileformat, _postproc = _lookup_docx_format(fmt)
                 self.image_formats = [fileformat]
 
         self._known_keys = set()
@@ -418,7 +432,6 @@ class PlantumlBuilder(object):
 
 def _render_batches_on_vist(self):
     self.builder.plantuml_builder.render_batches()
-
 
 def _get_png_tag(self, fnames, node):
     refname, outfname = fnames['png']
@@ -552,6 +565,11 @@ _KNOWN_HTML_FORMATS = {
 }
 
 
+_KNOWN_DOCX_FORMATS = {
+    'png': (('png',), None), # no post processing needed for docx
+}
+
+
 def _lookup_html_format(fmt):
     try:
         return _KNOWN_HTML_FORMATS[fmt]
@@ -560,6 +578,11 @@ def _lookup_html_format(fmt):
             'plantuml_output_format must be one of %s, but is %r'
             % (', '.join(map(repr, _KNOWN_HTML_FORMATS)), fmt)
         )
+
+
+def _lookup_docx_format(fmt):
+    
+    return ('png', None)
 
 
 @contextmanager
@@ -733,6 +756,34 @@ def latex_visit_plantuml(self, node):
 def latex_depart_plantuml(self, node):
     pass
 
+def docx_visit_plantuml(self, node):
+    _render_batches_on_vist(self)
+    if 'docx_format' in node:
+        fmt = node['docx_format']
+    else:
+        fmt = self.builder.config.plantuml_docx_output_format
+    if fmt == 'none':
+        raise nodes.SkipNode
+    try:
+        fileformat, postproc = _lookup_docx_format(fmt)
+        refname, outfname = render_plantuml(self, node, fileformat)
+        if postproc is not None:
+            refname, outfname = postproc(self, refname, outfname)
+        
+    except PlantUmlError as err:
+        logger.warning(str(err), location=node, type='plantuml')
+        raise nodes.SkipNode
+
+    # put node representing rendered image
+    img_node = nodes.image(uri=refname, **node.attributes)
+    img_node.delattr('uml')
+    if not img_node.hasattr('alt'):
+        img_node['alt'] = node['uml']
+    node.append(img_node)
+
+
+def docx_depart_plantuml(self, node):
+    pass
 
 _KNOWN_CONFLUENCE_FORMATS = [
     'png',
@@ -801,6 +852,7 @@ def unsupported_visit_plantuml(self, node):
 _NODE_VISITORS = {
     'html': (html_visit_plantuml, None),
     'latex': (latex_visit_plantuml, latex_depart_plantuml),
+    'docx': (docx_visit_plantuml, docx_depart_plantuml),
     'man': (unsupported_visit_plantuml, None),  # TODO
     'texinfo': (unsupported_visit_plantuml, None),  # TODO
     'text': (text_visit_plantuml, None),
@@ -840,6 +892,7 @@ def setup(app):
     app.add_config_value('plantuml_output_format', 'png', 'html')
     app.add_config_value('plantuml_epstopdf', 'epstopdf', '')
     app.add_config_value('plantuml_latex_output_format', 'png', '')
+    app.add_config_value('plantuml_docx_output_format', 'png', '')
     app.add_config_value('plantuml_syntax_error_image', False, '')
     app.add_config_value('plantuml_cache_path', '_plantuml', '')
     app.add_config_value('plantuml_batch_size', 1, '')
@@ -853,5 +906,11 @@ def setup(app):
         from rst2pdf.pdfbuilder import PDFTranslator as translator
 
         setattr(translator, 'visit_' + plantuml.__name__, pdf_visit_plantuml)
+
+    if 'docxsphinx' in app.config.extensions:
+        from docxsphinx.writer import DocxTranslator as translator
+
+        setattr(translator, 'visit_' + plantuml.__name__, docx_visit_plantuml)
+        setattr(translator, 'depart_' + plantuml.__name__, docx_depart_plantuml)
 
     return {'parallel_read_safe': True}
