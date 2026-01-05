@@ -11,7 +11,6 @@ authors = [
 description = "Sphinx plantuml extension."
 requires-python = ">=3.10"
 readme = "README.md"
-license = "BSD"
 
 [tool.setuptools]
 packages = ["sphinxcontrib"]
