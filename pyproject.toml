@@ -1,6 +1,22 @@
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=67.8", "setuptools_scm>=6.2", "wheel>=0.41.0"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "synchron.sphinxcontrib-plantuml"
+dynamic = ["version"]
+authors = [
+    { name = "Yuya Nishihara", email = "yuya@tcha.org" },
+]
+description = "Sphinx plantuml extension."
+requires-python = ">=3.10"
+readme = "README.md"
+
+[tool.setuptools]
+packages = ["sphinxcontrib"]
+
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
 
 [tool.black]
 skip-string-normalization = true

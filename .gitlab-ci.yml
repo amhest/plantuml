@@ -1,0 +1,131 @@
+image: "python:3.7"
+
+variables:
+  RELEASE_BRANCH: synchron-main
+  VERSION_MAJOR: "0"
+  VERSION_MINOR: "31"
+  VERSION_PATCH: "1"
+  VERSION_BUILD: "${CI_PIPELINE_IID}"
+  VERSION: "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}+${VERSION_BUILD}"
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  PIP_INDEX_URL: "https://${JFROG_USERNAME}:${JFROG_ACCESS_TOKEN}@synchron.jfrog.io/artifactory/api/pypi/pypi-dev/simple"
+  # SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+  JFROG_UPLOAD_PATH: "pypi-dev-local/synchron.sphinxcontrib-plantuml/${VERSION}/"
+
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_BRANCH == $RELEASE_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# test-pages:
+#   stage: test
+#   image:
+#     name: $BUILD_ENV_DOCS_LATEST_IMAGE
+#     pull_policy: if-not-present
+#   tags: 
+#     - linux
+#     - docker-runner
+#   script:
+#     # Initial setup
+#     - python3 -m venv venv
+#     - source venv/bin/activate
+#     - python3 -m pip install --upgrade pip
+#     - python3 -m pip install -e .[docs,emulator]
+#     - quasar build -f html docs/docs.quasar.yml
+#     - mv _build/html public
+#   artifacts:
+#     paths:
+#       - public
+
+# test-python:
+#   stage: test
+#   image:
+#     name: $BUILD_ENV_PYTHON_LATEST_IMAGE
+#     pull_policy: if-not-present
+#   tags: 
+#     - linux
+#     - docker-runner
+#   script:
+#     - python3 -m pip install --upgrade pip
+#     - python3 -m pip install .[dev,test]
+#     - tox -e lint
+#     - python3 -m pytest . -s --cov=irtu --cov-report=xml:coverage.xml --cov-report=json:coverage.json --cov-branch --log-cli-level=INFO --junitxml=report.xml
+#     - cat coverage.json | jq -r .totals.percent_covered | awk '{print "COVERAGE " $1}'
+#   coverage: '/(?i)COVERAGE.*? (100(?:\.0+)?\%|[1-9]?\d(?:\.\d+)?)$/'
+#   artifacts:
+#     reports:
+#       junit: report.xml
+#       coverage_report:
+#         coverage_format: cobertura
+#         path: $CI_PROJECT_DIR/coverage.xml
+#     when: always
+
+# sonar-analysis:
+#   stage: test
+#   image:
+#     name: sonarsource/sonar-scanner-cli:latest
+#     entrypoint: [""]
+#   script:
+#     - sonar-scanner
+
+# pages:
+#   stage: deploy
+#   extends: test-pages
+#   rules:
+#     - if: $CI_MANUAL_RELEASE == "true"
+#     - if: $CI_COMMIT_BRANCH == $RELEASE_BRANCH && $CI_PIPELINE_SOURCE == "push"
+#   artifacts:
+#     paths:
+#       - public
+
+release:
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  rules:
+    - if: $CI_MANUAL_RELEASE == "true"
+    - if: $CI_COMMIT_BRANCH == $RELEASE_BRANCH && $CI_PIPELINE_SOURCE == "push"
+  tags:
+    - gitlab-org-docker
+  script:
+    - echo 'Release v${VERSION}'
+  release:
+    name: 'Release v${VERSION}'
+    tag_name: '${VERSION}'
+    ref: '$CI_COMMIT_SHA'
+    description: 'Release v${VERSION}'
+
+upload-release-jfrog:
+  stage: deploy
+  image:
+    name: $BUILD_ENV_PYTHON_LATEST_IMAGE
+    pull_policy: if-not-present
+  tags: 
+    - linux
+    - docker-runner
+  rules:
+    - if: $CI_MANUAL_RELEASE == "true"
+    - if: $CI_COMMIT_BRANCH == $RELEASE_BRANCH && $CI_PIPELINE_SOURCE == "push"
+  needs: ["release"]
+  script:
+    - jf c add synchron-jfrog
+      --interactive=false
+      --url=https://synchron.jfrog.io
+      --access-token=$JFROG_ACCESS_TOKEN
+    - python3 -m venv venv
+    - source venv/bin/activate
+    - jf pipc --server-id-resolve synchron-jfrog --repo-resolve pypi-dev
+    - jf pip install --force-reinstall build
+    - jf pip install .
+      --force-reinstall
+      --build-name=$CI_PROJECT_NAME
+      --build-number=$CI_PIPELINE_IID
+    - python -m build
+    - jf rt u dist/ $JFROG_UPLOAD_PATH --build-name=$CI_PROJECT_NAME --build-number=$CI_PIPELINE_IID --flat=true
+    - jf rt bce $CI_PROJECT_NAME $CI_PIPELINE_IID
+    - jf rt bag $CI_PROJECT_NAME $CI_PIPELINE_IID
+    - jf rt bp $CI_PROJECT_NAME $CI_PIPELINE_IID --env-include=CI_JOB_URL
