@@ -764,16 +764,13 @@ def docx_visit_plantuml(self, node):
         fmt = self.builder.config.plantuml_docx_output_format
     if fmt == 'none':
         raise nodes.SkipNode
-    try:
-        fileformat, postproc = _lookup_docx_format(fmt)
-        refname, outfname = render_plantuml(self, node, fileformat)
-        if postproc is not None:
-            refname, outfname = postproc(self, refname, outfname)
-        
-    except PlantUmlError as err:
-        logger.warning(str(err), location=node, type='plantuml')
-        raise nodes.SkipNode
-
+    
+    # Bubble up any errors
+    fileformat, postproc = _lookup_docx_format(fmt)
+    refname, outfname = render_plantuml(self, node, fileformat)
+    if postproc is not None:
+        refname, outfname = postproc(self, refname, outfname)
+    
     # put node representing rendered image
     img_node = nodes.image(uri=refname, **node.attributes)
     img_node.delattr('uml')
