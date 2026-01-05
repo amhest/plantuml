@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 long_desc = open('README.rst').read()
 
 setup(
-    name='sphinxcontrib-plantuml',
+    name='synchron.sphinxcontrib-plantuml',
     version='0.31',
     url='https://github.com/sphinx-contrib/plantuml/',
     download_url='https://pypi.python.org/pypi/sphinxcontrib-plantuml',
